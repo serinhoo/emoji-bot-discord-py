@@ -1,19 +1,21 @@
-import os
-import requests
 import difflib
+import os
 import secrets
 
 import discord
+import fuzzywuzzy
+import requests
 from discord.ext import commands
 
+
 async def get_free_emoji_slots(guild):
-    emojis = await guild.fetch_emojis()
-    free_emoji_slots = guild.emoji_limit - len([emoji for emoji in emojis if not emoji.animated])
-    free_animated_emoji_slots = guild.emoji_limit - len([emoji for emoji in emojis if emoji.animated])
+    free_emoji_slots = guild.emoji_limit - len([emoji for emoji in guild.emojis if not emoji.animated])
+    free_animated_emoji_slots = guild.emoji_limit - len([emoji for emoji in guild.emojis if emoji.animated])
     return free_emoji_slots, free_animated_emoji_slots
 
 # https://emoji.gg/api/
 class CommandsCog(commands.Cog):
+
     def __init__(self, bot):
         self.bot = bot
         self.sessions = {}
@@ -21,8 +23,10 @@ class CommandsCog(commands.Cog):
         # {'guild_id|user_id': {'api_state': [parsed results of https://emoji.gg/api/], 'message_id': int,'index': int}}
         # {'2372132131|1232321': {'api_state': [], 'message_id': 3247824234, 'index': 23}}
 
+# --------------------------------------------------------------------------------------
+
     @commands.guild_only()
-    @commands.group(name='emoji', aliases=['e'])
+    @commands.group(name='emoji', aliases=['emote', 'e'])
     async def emoji_base(self, ctx):
         if ctx.invoked_subcommand is None:
             emojis = await ctx.guild.fetch_emojis()
@@ -38,8 +42,10 @@ class CommandsCog(commands.Cog):
             embed.set_footer(text=f"This server has {free_emoji_slots} normal emoji slots available and {free_animated_emoji_slots} animated emoji slots available.")
             await ctx.send(embed=embed)
 
+# --------------------------------------------------------------------------------------
+
     @commands.has_guild_permissions(manage_emojis=True)
-    @emoji_base.command(name='browse', aliases=['browser', 'list', 'b', 'l'])
+    @emoji_base.command(name='browse', aliases=['browser', 'list', 'search', 'b', 'l', 's'])
     async def emoji_browse(self, ctx, *, arg=None):
         
         key = str(ctx.guild.id)+'|'+str(ctx.message.author.id)
@@ -57,20 +63,21 @@ class CommandsCog(commands.Cog):
         async with ctx.message.channel.typing():
             r = requests.get('https://emoji.gg/api/')
             available_emojis = r.json()
+            print(len(available_emojis))
 
             if arg is not None:
-                matching_titles = difflib.get_close_matches(word=arg, possibilities=[entry['title'] for entry in available_emojis], n=50, cutoff=0.5)
-                available_emojis = [entry for entry in available_emojis if entry['title'] in matching_titles]
+                matching_titles = difflib.get_close_matches(word=arg, possibilities=[entry['title'] for entry in available_emojis], n=50, cutoff=0.60)
+                available_emojis = [entry for entry in available_emojis if (entry['title'] in matching_titles)]
+                available_emojis += [entry for entry in r.json() if (arg in entry['title']) and entry not in available_emojis]
 
         if len(available_emojis) == 0:
-            embed=discord.Embed(title="**Error while executing this command.**", fdescription="Bot has not found any emojis matching title `{arg}`. Try using something else.", color=0x738adb)
+            embed=discord.Embed(title="**Error while executing this command.**", description=f"Bot has not found any emojis matching title `{arg}`. Try using something else.", color=0x738adb)
             embed.set_author(name=self.bot.user.name, icon_url=self.bot.user.avatar_url)
             embed.set_footer(text=f"This server has {free_emoji_slots} normal emoji slots available and {free_animated_emoji_slots} animated emoji slots available.")
             await ctx.send(embed=embed)
             return
         
         entry = available_emojis[0]
-        print(entry)
 
         embed = discord.Embed(
             title=f"**Choose emoji (1 of {len(available_emojis)})**", description="You can now choose emoji that you want to add to your server.\n Use :arrow_left: or :arrow_right: to cycle between emojis.\n Use :white_check_mark: to add current emoji to your server.\n Use :negative_squared_cross_mark: to end adding new emojis and close this session.\n After fifteen minutes session will close, embed will stop reacting and you will have to start new one using `^emoji browse`.", color=0x738adb)
@@ -79,7 +86,7 @@ class CommandsCog(commands.Cog):
         embed.set_image(url=entry['image'])
         embed.add_field(name="**Name:**", value=entry['title'], inline=True)
         embed.add_field(name="**Submitted by:**", value=entry['submitted_by'], inline=True)
-        embed.set_footer(text=f"This server has {free_emoji_slots} normal emoji slots available and {free_animated_emoji_slots} animated emoji slots available.")
+        embed.set_footer(text=f"This server has {free_emoji_slots} normal emoji slots available and {free_animated_emoji_slots} animated emoji slots available.", icon_url=entry['image'])
 
         message = await ctx.send(embed=embed)
 
@@ -92,6 +99,7 @@ class CommandsCog(commands.Cog):
 
         self.sessions[key] = {'available_emojis': available_emojis, 'message_id': message.id, 'index': 0}
 
+# --------------------------------------------------------------------------------------
 
     @commands.has_guild_permissions(manage_emojis=True)
     @emoji_base.command(name='rename', aliases=['r'])
@@ -101,7 +109,20 @@ class CommandsCog(commands.Cog):
         
         free_emoji_slots, free_animated_emoji_slots = await get_free_emoji_slots(ctx.guild)
 
+        emoji_to_rename = None
+        for emoji in ctx.guild.emojis:
+            if emoji.name == old_name:
+                emoji_to_rename = emoji
+                break
         
+        if emoji_to_rename is None:
+            embed=discord.Embed(title="**Error while executing this command.**", description=f"There is no emoji named `{old_name}`.", color=0x738adb)
+            embed.set_author(name=self.bot.user.name, icon_url=self.bot.user.avatar_url)
+            embed.set_footer(text=f"This server has {free_emoji_slots} normal emoji slots available and {free_animated_emoji_slots} animated emoji slots available.")
+            await ctx.send(embed=embed)
+            return
+
+        await emoji_to_rename.edit(name=new_name)
 
         embed = discord.Embed(title=f"**Successfully renamed emoji!**", color=0x738adb)
         embed.set_author(name=self.bot.user.name, icon_url=self.bot.user.avatar_url)
@@ -109,6 +130,18 @@ class CommandsCog(commands.Cog):
         embed.add_field(name="**New name:**", value=new_name, inline=True)
         embed.set_footer(text=f"This server has {free_emoji_slots} normal emoji slots available and {free_animated_emoji_slots} animated emoji slots available.")
 
+        await ctx.send(embed=embed)
+
+    @commands.is_owner()
+    @emoji_base.command(name='cleansession', aliases=['cs'])
+    async def emoji_cleansession(self, ctx, member: discord.Member):
+        key = str(ctx.guild.id)+'|'+str(member.id)
+
+        try:
+            del self.sessions[key]
+            await ctx.send('usunieto sesje')
+        except:
+            await ctx.send('taka sesja nie istnieje')
 
 # --------------------------------------------------------------------------------------
 # --------------------------------------------------------------------------------------
@@ -147,7 +180,7 @@ class CommandsCog(commands.Cog):
             embed.set_image(url=entry['image'])
             embed.add_field(name="**Name:**", value=entry['title'], inline=True)
             embed.add_field(name="**Submitted by:**", value=entry['submitted_by'], inline=True)
-            embed.set_footer(text=f"This server has {free_emoji_slots} normal emoji slots available and {free_animated_emoji_slots} animated emoji slots available.")
+            embed.set_footer(text=f"This server has {free_emoji_slots} normal emoji slots available and {free_animated_emoji_slots} animated emoji slots available.", icon_url=entry['image'])
             
 
             await message.edit(embed=embed)
@@ -159,7 +192,7 @@ class CommandsCog(commands.Cog):
             message = await reaction.message.channel.fetch_message(self.sessions[key]['message_id'])
             await message.remove_reaction('➡️', user)
 
-            if self.sessions[key]['index'] + 1 > len(self.sessions[key]['available_emojis']):
+            if self.sessions[key]['index'] > len(self.sessions[key]['available_emojis']):
                 return
             
             free_emoji_slots, free_animated_emoji_slots = await get_free_emoji_slots(reaction.message.channel.guild)
@@ -178,7 +211,7 @@ class CommandsCog(commands.Cog):
             embed.set_image(url=entry['image'])
             embed.add_field(name="**Name:**", value=entry['title'], inline=True)
             embed.add_field(name="**Submitted by:**", value=entry['submitted_by'], inline=True)
-            embed.set_footer(text=f"This server has {free_emoji_slots} normal emoji slots available and {free_animated_emoji_slots} animated emoji slots available.")
+            embed.set_footer(text=f"This server has {free_emoji_slots} normal emoji slots available and {free_animated_emoji_slots} animated emoji slots available.", icon_url=entry['image'])
             
             message = await reaction.message.channel.fetch_message(self.sessions[key]['message_id'])
 
@@ -221,7 +254,7 @@ class CommandsCog(commands.Cog):
             embed.add_field(name="**Submitted by:**", value=entry['submitted_by'], inline=True)
             
             free_emoji_slots, free_animated_emoji_slots = await get_free_emoji_slots(reaction.message.channel.guild)
-            embed.set_footer(text=f"This server has {free_emoji_slots} normal emoji slots available and {free_animated_emoji_slots} animated emoji slots available.")
+            embed.set_footer(text=f"This server has {free_emoji_slots} normal emoji slots available and {free_animated_emoji_slots} animated emoji slots available.", icon_url=entry['image'])
             
 
             await reaction.message.channel.send(embed=embed)

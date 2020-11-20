@@ -25,7 +25,7 @@ async def on_message(message):
         print(message.content)
     await bot.process_commands(message)
 
-# On Windows you can set your token by running `setx EMOJI_BOT_TOKEN "your_token"` in terminal
+# On Windows you can set your token by running `setx EMOJI_BOT_TOKEN your_token` in terminal
 # If it doesn't work, then reboot your system
 token = os.getenv('EMOJI_BOT_TOKEN')
 
