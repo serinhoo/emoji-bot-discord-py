@@ -3,7 +3,7 @@ import os
 import secrets
 
 import discord
-import fuzzywuzzy
+from fuzzywuzzy import process
 import requests
 from discord.ext import commands
 
@@ -63,12 +63,12 @@ class CommandsCog(commands.Cog):
         async with ctx.message.channel.typing():
             r = requests.get('https://emoji.gg/api/')
             available_emojis = r.json()
-            print(len(available_emojis))
 
             if arg is not None:
-                matching_titles = difflib.get_close_matches(word=arg, possibilities=[entry['title'] for entry in available_emojis], n=50, cutoff=0.60)
-                available_emojis = [entry for entry in available_emojis if (entry['title'] in matching_titles)]
-                available_emojis += [entry for entry in r.json() if (arg in entry['title']) and entry not in available_emojis]
+                matching_titles = process.extract(arg, [entry['title'] for entry in available_emojis], limit=50)
+                matching_titles.sort(reverse=True, key=lambda x: x[1])
+                matching_titles = [entry[0] for entry in matching_titles]
+                available_emojis = [entry for entry in available_emojis if entry['title'] in matching_titles]
 
         if len(available_emojis) == 0:
             embed=discord.Embed(title="**Error while executing this command.**", description=f"Bot has not found any emojis matching title `{arg}`. Try using something else.", color=0x738adb)
