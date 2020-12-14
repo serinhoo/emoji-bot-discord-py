@@ -29,15 +29,14 @@ class CommandsCog(commands.Cog):
     @commands.group(name='emoji', aliases=['emote', 'e'])
     async def emoji_base(self, ctx):
         if ctx.invoked_subcommand is None:
-            emojis = await ctx.guild.fetch_emojis()
-            free_emoji_slots = ctx.guild.emoji_limit - len([emoji for emoji in emojis if not emoji.animated])
-            free_animated_emoji_slots = ctx.guild.emoji_limit - len([emoji for emoji in emojis if emoji.animated])
+            free_emoji_slots, free_animated_emoji_slots = await get_free_emoji_slots(ctx.guild)
 
             embed=discord.Embed(title="**Unknown Subcommand**", description="Here are all subcommands that are available to you. If you don't see some of them, you don't have sufficient permissions.", color=0x738adb)
             embed.set_author(name=self.bot.user.name, icon_url=self.bot.user.avatar_url)
 
             embed.add_field(name="**browse** [optional: name]", value="Opens emoji explorer and gives you an ability to browse and add emojis.", inline=True)
             embed.add_field(name="**rename** [old name] [new name]", value="Renames chosen emoji.", inline=True)
+            embed.add_field(name="**upload**", value="Uploads a new emoji. It should be used while uploading an image or images.")
 
             embed.set_footer(text=f"This server has {free_emoji_slots} normal emoji slots available and {free_animated_emoji_slots} animated emoji slots available.")
             await ctx.send(embed=embed)
@@ -132,6 +131,41 @@ class CommandsCog(commands.Cog):
 
         await ctx.send(embed=embed)
 
+    @commands.has_guild_permissions(manage_emojis=True)
+    @emoji_base.command(name='upload', aliases=['u'])
+    async def emoji_upload(self, ctx):
+        free_emoji_slots, free_animated_emoji_slots = await get_free_emoji_slots(ctx.guild)
+        files = []
+        for file in ctx.message.attachments:
+            file_extension = file.filename.rsplit('.')[-1]
+            if file_extension not in ['png', 'jpg', 'jpeg', 'tiff', 'gif']:
+                continue
+            files.append(file)
+        if len(files) == 0:
+            embed=discord.Embed(title="**Error while executing this command.**", description=f"There are no image files attached to this message.\nAccepted file extensions are: `png`, `jpg`, `jpeg`, `tiff` and `gif`.", color=0x738adb)
+            embed.set_author(name=self.bot.user.name, icon_url=self.bot.user.avatar_url)
+            embed.set_footer(text=f"This server has {free_emoji_slots} normal emoji slots available and {free_animated_emoji_slots} animated emoji slots available.")
+            await ctx.send(embed=embed)
+            return
+        for file in files:
+            emoji_name = file.filename.rsplit('.', 1)[:-1]
+            try:
+                print(emoji_name)
+                fp = await file.read()
+                emoji = await ctx.guild.create_custom_emoji(name=emoji_name, image=fp)
+            except Exception as e:
+                print(e)
+                embed = discord.Embed(title=f"**Error while adding a new emoji.**", description=f"Encountered a problem adding emoji `{emoji_name}`.\n```{e}```\nThis may prove somewhat useful when it comes to tracing the cause of this problem.", color=0x738adb)
+                embed.set_author(name=self.bot.user.name, icon_url=self.bot.user.avatar_url)
+                embed.set_footer(text=f"This server has {free_emoji_slots} normal emoji slots available and {free_animated_emoji_slots} animated emoji slots available.")
+
+                await ctx.send(embed=embed)
+                continue
+            embed = discord.Embed(title=f"**Added a new emoji!**", description=f"Added a new emoji ({emoji}) to your server!\n It is currently named `{emoji_name}` and you can rename it by using command `^emoji rename {emoji_name} [new_name].`", color=0x738adb)
+            embed.set_author(name=self.bot.user.name, icon_url=self.bot.user.avatar_url)
+            await ctx.send(embed=embed)
+
+
     @commands.is_owner()
     @emoji_base.command(name='cleansession', aliases=['cs'])
     async def emoji_cleansession(self, ctx, member: discord.Member):
@@ -142,6 +176,7 @@ class CommandsCog(commands.Cog):
             await ctx.send('usunieto sesje')
         except:
             await ctx.send('taka sesja nie istnieje')
+
 
 # --------------------------------------------------------------------------------------
 # --------------------------------------------------------------------------------------
