@@ -148,7 +148,7 @@ class CommandsCog(commands.Cog):
             await ctx.send(embed=embed)
             return
         for file in files:
-            emoji_name = file.filename.rsplit('.', 1)[:-1]
+            emoji_name = file.filename.rsplit('.', 1)[0]
             try:
                 fp = await file.read()
                 emoji = await ctx.guild.create_custom_emoji(name=emoji_name, image=fp)
