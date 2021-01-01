@@ -1,11 +1,12 @@
 import difflib
 import os
 import secrets
+import time
 
 import discord
 from fuzzywuzzy import process
 import requests
-from discord.ext import commands
+from discord.ext import commands, tasks
 
 
 async def get_free_emoji_slots(guild):
@@ -20,8 +21,9 @@ class CommandsCog(commands.Cog):
         self.bot = bot
         self.sessions = {}
         # Example structure of self.sessions
-        # {'guild_id|user_id': {'api_state': [parsed results of https://emoji.gg/api/], 'message_id': int,'index': int}}
-        # {'2372132131|1232321': {'api_state': [], 'message_id': 3247824234, 'index': 23}}
+        # {'guild_id|user_id': {'api_state': [parsed results of https://emoji.gg/api/], 'message_id': int,'index': int, 'timeout:' int}}
+        # {'2372132131|1232321': {'api_state': [], 'message_id': 3247824234, 'index': 23, 'timeout': 1609532770}}
+        self.check_sessions.start()
 
 # --------------------------------------------------------------------------------------
 
@@ -79,7 +81,7 @@ class CommandsCog(commands.Cog):
         entry = available_emojis[0]
 
         embed = discord.Embed(
-            title=f"**Choose emoji (1 of {len(available_emojis)})**", description="You can now choose emoji that you want to add to your server.\n Use :arrow_left: or :arrow_right: to cycle between emojis.\n Use :white_check_mark: to add current emoji to your server.\n Use :negative_squared_cross_mark: to end adding new emojis and close this session.\n After fifteen minutes session will close, embed will stop reacting and you will have to start new one using `^emoji browse`.", color=0x738adb)
+            title=f"**Choose emoji (1 of {len(available_emojis)})**", description="You can now choose emoji that you want to add to your server.\nYou have 10 minutes to look through the catalog, after that time passes the session will time out.\n\n Use :arrow_left: or :arrow_right: to cycle between emojis.\n Use :white_check_mark: to add current emoji to your server.\n Use :negative_squared_cross_mark: to end adding new emojis and close this session.\n After fifteen minutes session will close, embed will stop reacting and you will have to start new one using `^emoji browse`.", color=0x738adb)
         embed.set_author(name=self.bot.user.name, icon_url=self.bot.user.avatar_url)
         embed.set_thumbnail(url=entry['image'])
         embed.set_image(url=entry['image'])
@@ -96,9 +98,7 @@ class CommandsCog(commands.Cog):
         await message.add_reaction('✅')
         await message.add_reaction('❎')
 
-        self.sessions[key] = {'available_emojis': available_emojis, 'message_id': message.id, 'index': 0}
-
-# --------------------------------------------------------------------------------------
+        self.sessions[key] = {'available_emojis': available_emojis, 'message_id': message.id, 'index': 0, 'timeout': int(time.time)+600}
 
     @commands.has_guild_permissions(manage_emojis=True)
     @emoji_base.command(name='rename', aliases=['r'])
@@ -303,6 +303,14 @@ class CommandsCog(commands.Cog):
 
             await message.edit(content='Session closed.', suppress=True)
 
+# --------------------------------------------------------------------------------------
+# --------------------------------------------------------------------------------------
+# --------------------------------------------------------------------------------------
+    @tasks.loop(minutes=1.0)
+    async def check_sessions(self):
+        for key in self.sessions:
+            if self.sessions[key]['timeout'] > int(time.time):
+                del(self.sessions[key])
 
 def setup(bot):
     bot.add_cog(CommandsCog(bot))
