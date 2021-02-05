@@ -1,12 +1,14 @@
+import asyncio
 import difflib
 import os
 import secrets
 import time
+import timeit
 
 import discord
-from fuzzywuzzy import process
 import requests
 from discord.ext import commands, tasks
+from fuzzywuzzy import process
 
 
 async def get_free_emoji_slots(guild):
@@ -16,7 +18,6 @@ async def get_free_emoji_slots(guild):
 
 # https://emoji.gg/api/
 class CommandsCog(commands.Cog):
-
     def __init__(self, bot):
         self.bot = bot
         self.sessions = {}
@@ -47,7 +48,7 @@ class CommandsCog(commands.Cog):
 
     @commands.has_guild_permissions(manage_emojis=True)
     @emoji_base.command(name='browse', aliases=['browser', 'list', 'search', 'b', 'l', 's'])
-    async def emoji_browse(self, ctx, *, arg=None):
+    async def emoji_browse(self, ctx, *, arg: str=None):
         
         key = str(ctx.guild.id)+'|'+str(ctx.message.author.id)
 
@@ -66,10 +67,24 @@ class CommandsCog(commands.Cog):
             available_emojis = r.json()
 
             if arg is not None:
-                matching_titles = process.extract(arg, [entry['title'] for entry in available_emojis], limit=50)
-                matching_titles.sort(reverse=True, key=lambda x: x[1])
-                matching_titles = [entry[0] for entry in matching_titles]
-                available_emojis = [entry for entry in available_emojis if entry['title'] in matching_titles]
+                matching_titles = process.extractBests(
+                    query=arg,
+                    choices=[entry['title'] for entry in available_emojis],
+                    scorer=process.fuzz.QRatio,
+                    score_cutoff=40,
+                    limit=50
+                )
+                available_emojis = [emoji for emoji in available_emojis if emoji['title'] in [entry[0] for entry in matching_titles]]
+
+                unseen = [i for i, _ in enumerate(available_emojis)]
+                for title, ratio in matching_titles:
+                    for i in unseen:
+                        if title == available_emojis[i]['title']:
+                            available_emojis[i]['ratio'] = ratio
+                            unseen.remove(i)
+                            break
+
+                available_emojis.sort(reverse=True, key=lambda x: x['ratio'])
 
         if len(available_emojis) == 0:
             embed=discord.Embed(title="**Error while executing this command.**", description=f"Bot has not found any emojis matching title `{arg}`. Try using something else.", color=0x738adb)
@@ -84,7 +99,6 @@ class CommandsCog(commands.Cog):
             title=f"**Choose emoji (1 of {len(available_emojis)})**", description="You can now choose emoji that you want to add to your server.\nYou have 10 minutes to look through the catalog, after that time passes the session will time out.\n\n Use :arrow_left: or :arrow_right: to cycle between emojis.\n Use :white_check_mark: to add current emoji to your server.\n Use :negative_squared_cross_mark: to end adding new emojis and close this session.\n After fifteen minutes session will close, embed will stop reacting and you will have to start new one using `^emoji browse`.", color=0x738adb)
         embed.set_author(name=self.bot.user.name, icon_url=self.bot.user.avatar_url)
         embed.set_thumbnail(url=entry['image'])
-        embed.set_image(url=entry['image'])
         embed.add_field(name="**Name:**", value=entry['title'], inline=True)
         embed.add_field(name="**Submitted by:**", value=entry['submitted_by'], inline=True)
         embed.set_footer(text=f"This server has {free_emoji_slots} normal emoji slots available and {free_animated_emoji_slots} animated emoji slots available.", icon_url=entry['image'])
@@ -98,13 +112,13 @@ class CommandsCog(commands.Cog):
         await message.add_reaction('✅')
         await message.add_reaction('❎')
 
-        self.sessions[key] = {'available_emojis': available_emojis, 'message_id': message.id, 'index': 0, 'timeout': int(time.time)+600}
+        self.sessions[key] = {'available_emojis': available_emojis, 'message_id': message.id, 'index': 0, 'timeout': int(time.time())+600}
 
     @commands.has_guild_permissions(manage_emojis=True)
     @emoji_base.command(name='rename', aliases=['r'])
     async def emoji_rename(self, ctx, old_name=None, new_name=None):
         if old_name is None or new_name is None:
-            await emoji_base(ctx)
+            await self.emoji_base(ctx)
         
         free_emoji_slots, free_animated_emoji_slots = await get_free_emoji_slots(ctx.guild)
 
@@ -164,7 +178,6 @@ class CommandsCog(commands.Cog):
             embed.set_author(name=self.bot.user.name, icon_url=self.bot.user.avatar_url)
             await ctx.send(embed=embed)
 
-
     @commands.is_owner()
     @emoji_base.command(name='cleansession', aliases=['cs'])
     async def emoji_cleansession(self, ctx, member: discord.Member):
@@ -211,7 +224,6 @@ class CommandsCog(commands.Cog):
                 title=f"**Choose emoji ({index+1} of {len(available_emojis)})**", description="You can now choose emoji that you want to add to your server.\n Use :arrow_left: or :arrow_right: to cycle between emojis.\n Use :white_check_mark: to add current emoji to your server.\n Use :negative_squared_cross_mark: to end adding new emojis and close this session.\n After fifteen minutes session will close, embed will stop reacting and you will have to start new one using `^emoji browse`.", color=0x738adb)
             embed.set_author(name=self.bot.user.name, icon_url=self.bot.user.avatar_url)
             embed.set_thumbnail(url=entry['image'])
-            embed.set_image(url=entry['image'])
             embed.add_field(name="**Name:**", value=entry['title'], inline=True)
             embed.add_field(name="**Submitted by:**", value=entry['submitted_by'], inline=True)
             embed.set_footer(text=f"This server has {free_emoji_slots} normal emoji slots available and {free_animated_emoji_slots} animated emoji slots available.", icon_url=entry['image'])
@@ -242,7 +254,6 @@ class CommandsCog(commands.Cog):
                 title=f"**Choose emoji ({index+1} of {len(available_emojis)})**", description="You can now choose emoji that you want to add to your server.\n Use :arrow_left: or :arrow_right: to cycle between emojis.\n Use :white_check_mark: to add current emoji to your server.\n Use :negative_squared_cross_mark: to end adding new emojis and close this session.\n After fifteen minutes session will close, embed will stop reacting and you will have to start new one using `^emoji browse`.", color=0x738adb)
             embed.set_author(name=self.bot.user.name, icon_url=self.bot.user.avatar_url)
             embed.set_thumbnail(url=entry['image'])
-            embed.set_image(url=entry['image'])
             embed.add_field(name="**Name:**", value=entry['title'], inline=True)
             embed.add_field(name="**Submitted by:**", value=entry['submitted_by'], inline=True)
             embed.set_footer(text=f"This server has {free_emoji_slots} normal emoji slots available and {free_animated_emoji_slots} animated emoji slots available.", icon_url=entry['image'])
@@ -283,7 +294,6 @@ class CommandsCog(commands.Cog):
             embed = discord.Embed(title=f"**Added a new emoji!**", description=f"Added a new emoji ({emoji}) to your server!\n It is currently named `{emoji_name}` and you can rename it by using command `^emoji rename {emoji_name} [new_name].`", color=0x738adb)
             embed.set_author(name=self.bot.user.name, icon_url=self.bot.user.avatar_url)
             embed.set_thumbnail(url=entry['image'])
-            embed.set_image(url=entry['image'])
             embed.add_field(name="**Name:**", value=emoji_name, inline=True)
             embed.add_field(name="**Submitted by:**", value=entry['submitted_by'], inline=True)
             
@@ -306,16 +316,16 @@ class CommandsCog(commands.Cog):
 # --------------------------------------------------------------------------------------
 # --------------------------------------------------------------------------------------
 # --------------------------------------------------------------------------------------
+
     @tasks.loop(minutes=1.0)
     async def check_sessions(self):
         for key in self.sessions:
-            if self.sessions[key]['timeout'] > int(time.time):
+            if self.sessions[key]['timeout'] > int(time.time()):
                 del(self.sessions[key])
 
 def setup(bot):
     bot.add_cog(CommandsCog(bot))
     print(f"Uruchomiono moduł {__name__}")
-
 
 def teardown(bot):
     print(f"Wyłączono moduł {__name__}")
