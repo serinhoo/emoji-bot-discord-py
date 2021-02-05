@@ -3,7 +3,6 @@ import difflib
 import os
 import secrets
 import time
-import timeit
 
 import discord
 import requests
@@ -320,7 +319,7 @@ class CommandsCog(commands.Cog):
     @tasks.loop(minutes=1.0)
     async def check_sessions(self):
         for key in self.sessions:
-            if self.sessions[key]['timeout'] > int(time.time()):
+            if self.sessions[key]['timeout'] < int(time.time()):
                 del(self.sessions[key])
 
 def setup(bot):
