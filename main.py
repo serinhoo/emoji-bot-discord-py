@@ -25,7 +25,7 @@ async def on_ready():
 
 @bot.event
 async def on_message(message):
-    if message.guild == None:
+    if message.guild is None:
         print(message.content)
     await bot.process_commands(message)
 
