@@ -4,7 +4,7 @@ import time
 import discord
 import requests
 from discord.ext import commands, tasks
-from fuzzywuzzy import process
+from fuzzywuzzy import fuzz
 
 
 async def get_free_emoji_slots(guild):
@@ -45,11 +45,13 @@ class CommandsCog(commands.Cog):
     @commands.has_guild_permissions(manage_emojis=True)
     @emoji_base.command(name='browse', aliases=['browser', 'list', 'search', 'b', 'l', 's'])
     async def emoji_browse(self, ctx, *, arg: str=None):
-        
+        if arg is None:
+            await ctx.send('You need to specify what emoji are you searching for.\n `^emoji search [name]`')
+            return
         key = str(ctx.guild.id)+'|'+str(ctx.message.author.id)
 
         free_emoji_slots, free_animated_emoji_slots = await get_free_emoji_slots(ctx.guild)
-
+        
         if key in self.sessions.keys():
             embed=discord.Embed(title="**You can't use this command now.**", description="You already have opened an emoji browser on this serwer. Close it first before proceeding.", color=0x738adb)
             embed.set_author(name=self.bot.user.name, icon_url=self.bot.user.avatar_url)
@@ -60,39 +62,23 @@ class CommandsCog(commands.Cog):
         # This takes some time. We will make bot "type" to show the user that he received this command and is running it.
         async with ctx.message.channel.typing():
             r = requests.get('https://emoji.gg/api/')
-            available_emojis = r.json()
+            emojis = r.json()
+            for emoji in emojis:
+                emoji['score'] = fuzz.ratio(emoji['title'], arg)
+            emojis.sort(reverse=True, key=lambda x: x['score'])
+            emojis = emojis[:50]
 
-            if arg is not None:
-                matching_titles = process.extractBests(
-                    query=arg,
-                    choices=[entry['title'] for entry in available_emojis],
-                    scorer=process.fuzz.QRatio,
-                    score_cutoff=40,
-                    limit=50
-                )
-                available_emojis = [emoji for emoji in available_emojis if emoji['title'] in [entry[0] for entry in matching_titles]]
-
-                unseen = [i for i, _ in enumerate(available_emojis)]
-                for title, ratio in matching_titles:
-                    for i in unseen:
-                        if title == available_emojis[i]['title']:
-                            available_emojis[i]['ratio'] = ratio
-                            unseen.remove(i)
-                            break
-
-                available_emojis.sort(reverse=True, key=lambda x: x['ratio'])
-
-        if len(available_emojis) == 0:
+        if len(emojis) == 0:
             embed=discord.Embed(title="**Error while executing this command.**", description=f"Bot has not found any emojis matching title `{arg}`. Try using something else.", color=0x738adb)
             embed.set_author(name=self.bot.user.name, icon_url=self.bot.user.avatar_url)
             embed.set_footer(text=f"This server has {free_emoji_slots} normal emoji slots available and {free_animated_emoji_slots} animated emoji slots available.")
             await ctx.send(embed=embed)
             return
         
-        entry = available_emojis[0]
+        entry = emojis[0]
 
         embed = discord.Embed(
-            title=f"**Choose emoji (1 of {len(available_emojis)})**", description="You can now choose emoji that you want to add to your server.\nYou have 10 minutes to look through the catalog, after that time passes the session will time out.\n\n Use :arrow_left: or :arrow_right: to cycle between emojis.\n Use :white_check_mark: to add current emoji to your server.\n Use :negative_squared_cross_mark: to end adding new emojis and close this session.\n After fifteen minutes session will close, embed will stop reacting and you will have to start new one using `^emoji browse`.", color=0x738adb)
+            title=f"**Choose emoji (1 of {len(emojis)})**", description="You can now choose emoji that you want to add to your server.\nYou have 10 minutes to look through the catalog, after that time passes the session will time out.\n\n Use :arrow_left: or :arrow_right: to cycle between emojis.\n Use :white_check_mark: to add current emoji to your server.\n Use :negative_squared_cross_mark: to end adding new emojis and close this session.\n After fifteen minutes session will close, embed will stop reacting and you will have to start new one using `^emoji browse`.", color=0x738adb)
         embed.set_author(name=self.bot.user.name, icon_url=self.bot.user.avatar_url)
         embed.set_thumbnail(url=entry['image'])
         embed.add_field(name="**Name:**", value=entry['title'], inline=True)
@@ -102,13 +88,13 @@ class CommandsCog(commands.Cog):
         message = await ctx.send(embed=embed)
 
         # No need to display this if there is only one emoji.
-        if(len(available_emojis) > 1):
+        if(len(emojis) > 1):
             await message.add_reaction('⬅️')
             await message.add_reaction('➡️')
         await message.add_reaction('✅')
         await message.add_reaction('❎')
 
-        self.sessions[key] = {'available_emojis': available_emojis, 'message_id': message.id, 'index': 0, 'timeout': int(time.time())+600}
+        self.sessions[key] = {'available_emojis': emojis, 'message_id': message.id, 'index': 0, 'timeout': int(time.time())+600}
 
     @commands.has_guild_permissions(manage_emojis=True)
     @emoji_base.command(name='rename', aliases=['r'])
