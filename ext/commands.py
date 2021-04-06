@@ -16,11 +16,13 @@ async def get_free_emoji_slots(guild):
 class CommandsCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        self.api_cache = None
         self.sessions = {}
         # Example structure of self.sessions
         # {'guild_id|user_id': {'api_state': [parsed results of https://emoji.gg/api/], 'message_id': int,'index': int, 'timeout:' int}}
         # {'2372132131|1232321': {'api_state': [], 'message_id': 3247824234, 'index': 23, 'timeout': 1609532770}}
         self.check_sessions.start()
+        self.update_cache.start()
 
 # --------------------------------------------------------------------------------------
 
@@ -53,7 +55,7 @@ class CommandsCog(commands.Cog):
         free_emoji_slots, free_animated_emoji_slots = await get_free_emoji_slots(ctx.guild)
         
         if key in self.sessions.keys():
-            embed=discord.Embed(title="**You can't use this command now.**", description="You already have opened an emoji browser on this serwer. Close it first before proceeding.", color=0x738adb)
+            embed=discord.Embed(title="**You can't use this command now.**", description="You already have opened an emoji browser on this server. Close it first before proceeding.", color=0x738adb)
             embed.set_author(name=self.bot.user.name, icon_url=self.bot.user.avatar_url)
             embed.set_footer(text=f"This server has {free_emoji_slots} normal emoji slots available and {free_animated_emoji_slots} animated emoji slots available.")
             await ctx.send(embed=embed)
@@ -61,8 +63,7 @@ class CommandsCog(commands.Cog):
 
         # This takes some time. We will make bot "type" to show the user that he received this command and is running it.
         async with ctx.message.channel.typing():
-            r = requests.get('https://emoji.gg/api/')
-            emojis = r.json()
+            emojis = self.api_cache
             for emoji in emojis:
                 emoji['score'] = fuzz.ratio(emoji['title'], arg)
             emojis.sort(reverse=True, key=lambda x: x['score'])
@@ -304,6 +305,10 @@ class CommandsCog(commands.Cog):
         for key in self.sessions:
             if self.sessions[key]['timeout'] < int(time.time()):
                 del(self.sessions[key])
+
+    @tasks.loop(minutes=15.0)
+    async def update_cache(self):
+        self.api_cache = requests.get('https://emoji.gg/api/').json()
 
 def setup(bot):
     bot.add_cog(CommandsCog(bot))
