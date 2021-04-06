@@ -2,7 +2,7 @@ import os
 
 import discord
 from discord.ext import commands
-
+from dotenv import load_dotenv
 
 def get_command_prefix(bot, message):
     # Prefixy na które bot odpowiada
@@ -29,8 +29,8 @@ async def on_message(message):
         print(message.content)
     await bot.process_commands(message)
 
-# On Windows you can set your token by running `setx EMOJI_BOT_TOKEN your_token` in terminal
-# If it doesn't work, then reboot your system
+load_dotenv(override=True)
+
 token = os.getenv('EMOJI_BOT_TOKEN')
 
 bot.run(token)
